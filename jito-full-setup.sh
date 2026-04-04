@@ -73,6 +73,16 @@ SSH_PUBLIC_KEYS=(
     # "ssh-ed25519 AAAA... your-key-here"
 )
 
+# Solana keypairs — paste your JSON key content to skip throwaway generation
+# Example: STAKED_IDENTITY_KEY='[1,2,3,...,64]'
+STAKED_IDENTITY_KEY="${STAKED_IDENTITY_KEY:-}"
+SECONDARY_IDENTITY_KEY="${SECONDARY_IDENTITY_KEY:-}"
+VOTE_ACCOUNT_KEY="${VOTE_ACCOUNT_KEY:-}"
+
+# SSH private key for inter-server access
+# Paste ed25519 private key content to enable SSH between servers
+SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-}"
+
 # --- Telegram alerts (optional) ---
 # Set via env: export TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
@@ -240,6 +250,20 @@ chmod 600 "$HOME_DIR/.ssh/config"
 chown -R "$NEW_USER:$NEW_USER" "$HOME_DIR/.ssh"
 chmod 700 "$HOME_DIR/.ssh"
 chmod 600 "$HOME_DIR/.ssh/authorized_keys"
+
+if [ -n "$SSH_PRIVATE_KEY" ]; then
+    log_info "Writing provided SSH private key"
+    printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME_DIR/.ssh/id_ed25519"
+    chmod 600 "$HOME_DIR/.ssh/id_ed25519"
+    ssh-keygen -y -f "$HOME_DIR/.ssh/id_ed25519" > "$HOME_DIR/.ssh/id_ed25519.pub"
+    chmod 644 "$HOME_DIR/.ssh/id_ed25519.pub"
+    PUB_KEY=$(cat "$HOME_DIR/.ssh/id_ed25519.pub")
+    if ! grep -qF "$PUB_KEY" "$HOME_DIR/.ssh/authorized_keys" 2>/dev/null; then
+        echo "$PUB_KEY" >> "$HOME_DIR/.ssh/authorized_keys"
+    fi
+    chown "$NEW_USER:$NEW_USER" "$HOME_DIR/.ssh/id_ed25519" "$HOME_DIR/.ssh/id_ed25519.pub"
+    log_info "SSH keypair installed for inter-server access"
+fi
 
 if ! grep -q "^$NEW_USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
     echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -671,7 +695,12 @@ log_section "STEP 13: Setting up Keypairs"
 
 mkdir -p "$HOME_DIR/keys" "$SOLANA_DIR"
 
-if [ -f "$SOLANA_DIR/secondary-identity.json" ]; then
+if [ -n "$STAKED_IDENTITY_KEY" ] && [ -n "$SECONDARY_IDENTITY_KEY" ] && [ -n "$VOTE_ACCOUNT_KEY" ]; then
+    log_info "Writing provided keypairs to $SOLANA_DIR/"
+    printf '%s' "$STAKED_IDENTITY_KEY" > "$SOLANA_DIR/staked-identity.json"
+    printf '%s' "$SECONDARY_IDENTITY_KEY" > "$SOLANA_DIR/secondary-identity.json"
+    printf '%s' "$VOTE_ACCOUNT_KEY" > "$SOLANA_DIR/vote-account-keypair.json"
+elif [ -f "$SOLANA_DIR/secondary-identity.json" ]; then
     log_info "Keypairs already exist in $SOLANA_DIR, skipping generation"
 else
     log_warn "Generating placeholder keypairs — replace with your real keys before activating!"
