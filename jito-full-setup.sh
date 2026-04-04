@@ -698,9 +698,9 @@ mkdir -p "$HOME_DIR/keys" "$SOLANA_DIR"
 if [ -n "$STAKED_IDENTITY_KEY" ] && [ -n "$SECONDARY_IDENTITY_KEY" ] && [ -n "$VOTE_ACCOUNT_KEY" ]; then
     log_info "Writing provided keypairs to $SOLANA_DIR/"
     printf '%s' "$STAKED_IDENTITY_KEY" > "$SOLANA_DIR/staked-identity.json"
-    printf '%s' "$SECONDARY_IDENTITY_KEY" > "$SOLANA_DIR/secondary-identity.json"
+    printf '%s' "$SECONDARY_IDENTITY_KEY" > "$SOLANA_DIR/secondary-unstaked-identity.json"
     printf '%s' "$VOTE_ACCOUNT_KEY" > "$SOLANA_DIR/vote-account-keypair.json"
-elif [ -f "$SOLANA_DIR/secondary-identity.json" ]; then
+elif [ -f "$SOLANA_DIR/secondary-unstaked-identity.json" ]; then
     log_info "Keypairs already exist in $SOLANA_DIR, skipping generation"
 else
     log_warn "Generating placeholder keypairs — replace with your real keys before activating!"
@@ -709,11 +709,13 @@ else
         export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
         if command -v solana-keygen &>/dev/null; then
             solana-keygen new --no-bip39-passphrase -s -o '"${SOLANA_DIR}"'/staked-identity.json
-            solana-keygen new --no-bip39-passphrase -s -o '"${SOLANA_DIR}"'/secondary-identity.json
+            solana-keygen new --no-bip39-passphrase -s -o '"${SOLANA_DIR}"'/secondary-unstaked-identity.json
             solana-keygen new --no-bip39-passphrase -s -o '"${SOLANA_DIR}"'/vote-account-keypair.json
         fi
     '
 fi
+
+ln -sf "$SOLANA_DIR/secondary-unstaked-identity.json" "$SOLANA_DIR/secondary-identity.json"
 
 chmod 600 "$SOLANA_DIR"/*.json 2>/dev/null || true
 chown -R "$NEW_USER:$NEW_USER" "$HOME_DIR/keys" "$SOLANA_DIR"
