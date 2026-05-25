@@ -433,7 +433,6 @@ After=multi-user.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash -c '\
-echo off > /sys/devices/system/cpu/smt/control 2>/dev/null || true; \
 echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null || true; \
 echo never > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true; \
 echo 0 > /sys/kernel/mm/ksm/run 2>/dev/null || true; \
@@ -588,9 +587,13 @@ cat > "$HOME_DIR/setup-ramdisk-keys.sh" << 'RAMDISKSCRIPT'
 # Copy keys to ramdisk if not already present
 if [ ! -f /mnt/ramdisk/staked-identity.json ]; then
     cp ~/keys/*.json /mnt/ramdisk/
-    # secondary-identity symlink for zero-downtime swap
-    ln -sf secondary-unstaked-identity.json /mnt/ramdisk/secondary-identity.json
     chmod 600 /mnt/ramdisk/*.json
+fi
+
+# secondary-identity symlink for zero-downtime swap.
+# Keep this outside the copy branch so a staged ramdisk can be repaired safely.
+if [ -f /mnt/ramdisk/secondary-unstaked-identity.json ]; then
+    ln -sf secondary-unstaked-identity.json /mnt/ramdisk/secondary-identity.json
 fi
 
 # Ensure ramdisk ledger dir exists (for high-RAM configs)
