@@ -63,7 +63,7 @@ log_info "User           : $NEW_USER"
 # Add your own SSH public key(s) here before running.
 # Example: "ssh-ed25519 AAAA... user@host"
 SSH_PUBLIC_KEYS=(
-    # "ssh-ed25519 AAAA... your-key-here"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK6HS33hxsp1e2fxmZN/L3Cg/eWGLpQWfhIgi7gLE8TN ubuntu@main"
 )
 
 # --- Telegram alerts (optional) ---
