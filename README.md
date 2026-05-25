@@ -39,7 +39,8 @@ Both scripts are fully automated and handle everything from OS hardening to vali
 
 ### Firedancer specific
 - Official `firedancer-io/firedancer` repo
-- XDP driver mode with zero-copy
+- Runtime NIC probe for native XDP driver mode; `xdp_mode = "drv"` is written only after the probe succeeds
+- Zero-copy enabled only for known-capable drivers (`mlx5`, `ice`, `i40e`); otherwise Firedancer defaults are left in place
 - Ramdisk ledger support for high-RAM servers (>700 GB)
 - `config.toml` generated dynamically from detected hardware
 

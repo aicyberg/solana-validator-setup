@@ -243,7 +243,7 @@ log_section "STEP 5: Installing System Dependencies"
 apt-get install -y \
     libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make \
     libprotobuf-dev protobuf-compiler lld libclang-dev llvm-dev \
-    build-essential git curl wget ufw chrony numactl ethtool
+    build-essential git curl wget ufw chrony numactl ethtool iproute2
 
 #############################################################################
 # STEP 6: Install Rust
@@ -655,6 +655,82 @@ for v in "${KNOWN_VALIDATORS[@]}"; do
     KV_TOML="${KV_TOML}     \"${v}\",\n"
 done
 
+#############################################################################
+# Firedancer XDP mode detection
+#############################################################################
+
+XDP_TOML=""
+DEFAULT_IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev") {print $(i+1); exit}}')
+FD_XDP_ZERO_COPY_DRIVERS="mlx5_core|mlx5|ice|i40e"
+
+probe_xdp_drv_mode() {
+    local iface="$1"
+    local tmpdir src obj include_dir
+    local clang_include_args=()
+
+    [ -n "$iface" ] || return 1
+    [ -e "/sys/class/net/$iface/device" ] || return 1
+    if ip -details link show dev "$iface" 2>/dev/null | grep -q 'prog/xdp'; then
+        log_warn "Existing XDP program detected on $iface; skipping drv probe"
+        return 1
+    fi
+
+    tmpdir=$(mktemp -d)
+    src="$tmpdir/xdp_pass.c"
+    obj="$tmpdir/xdp_pass.o"
+
+    cat > "$src" <<'XDPEOF'
+#include <linux/bpf.h>
+#define SEC(NAME) __attribute__((section(NAME), used))
+SEC("xdp")
+int xdp_pass(struct xdp_md *ctx) {
+    return XDP_PASS;
+}
+char _license[] SEC("license") = "GPL";
+XDPEOF
+
+    include_dir="/usr/include/$(gcc -print-multiarch 2>/dev/null || true)"
+    [ -d "$include_dir" ] && clang_include_args=(-I "$include_dir")
+    if clang -O2 -target bpf "${clang_include_args[@]}" -c "$src" -o "$obj" >/dev/null 2>&1 &&
+       ip link set dev "$iface" xdpdrv obj "$obj" sec xdp >/dev/null 2>&1; then
+        ip link set dev "$iface" xdp off >/dev/null 2>&1 || true
+        rm -rf "$tmpdir"
+        return 0
+    fi
+
+    ip link set dev "$iface" xdp off >/dev/null 2>&1 || true
+    rm -rf "$tmpdir"
+    return 1
+}
+
+if [ -n "$DEFAULT_IFACE" ]; then
+    NIC_DRIVER=$(ethtool -i "$DEFAULT_IFACE" 2>/dev/null | awk '/^driver:/{print $2}')
+    NIC_BUS=$(ethtool -i "$DEFAULT_IFACE" 2>/dev/null | awk '/^bus-info:/{print $2}')
+    NIC_NUMA=$(cat "/sys/class/net/${DEFAULT_IFACE}/device/numa_node" 2>/dev/null || echo "-1")
+    log_info "NIC: $DEFAULT_IFACE  driver: ${NIC_DRIVER:-unknown}  bus: ${NIC_BUS:-unknown}  NUMA: $NIC_NUMA"
+
+    if probe_xdp_drv_mode "$DEFAULT_IFACE"; then
+        log_info "NIC $DEFAULT_IFACE passed native XDP drv-mode probe"
+        if echo "$NIC_DRIVER" | grep -qE "$FD_XDP_ZERO_COPY_DRIVERS"; then
+            XDP_TOML='
+[net.xdp]
+    xdp_zero_copy = true
+    xdp_mode = "drv"'
+            log_info "Firedancer XDP drv mode with zero-copy will be enabled"
+        else
+            XDP_TOML='
+[net.xdp]
+    xdp_zero_copy = false
+    xdp_mode = "drv"'
+            log_warn "Native XDP drv works, but driver is not in zero-copy allowlist; zero-copy disabled"
+        fi
+    else
+        log_warn "NIC $DEFAULT_IFACE did not pass native XDP drv-mode probe; leaving Firedancer XDP defaults"
+    fi
+else
+    log_warn "Default network interface not detected; leaving Firedancer XDP defaults"
+fi
+
 cat > "$SOLANA_DIR/config.toml" << EOF
 user = "$NEW_USER"
 dynamic_port_range = "8900-9000"
@@ -714,10 +790,7 @@ $(printf "%b" "$KV_TOML")    ]
 
 [net]
     provider = "xdp"
-
-[net.xdp]
-    xdp_zero_copy = true
-    xdp_mode = "drv"
+$XDP_TOML
 EOF
 
 chown "$NEW_USER:$NEW_USER" "$SOLANA_DIR/config.toml"
