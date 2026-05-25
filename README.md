@@ -124,6 +124,13 @@ SSH_PUBLIC_KEYS=(
 
 > ⚠️ **Warning:** The script hardens SSH and disables password authentication. If you don't add your key, you **will** be locked out after reboot.
 
+`fire-full-setup.sh` and `jito-full-setup.sh` can also accept
+`SSH_PRIVATE_KEY` via environment. They write
+the key only long enough to derive and authorize the public key, then shreds
+`~/.ssh/id_ed25519` by default. Set
+`SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL=false` only if the deployed host must keep
+that private key for outbound SSH.
+
 ### Telegram Alerts (optional)
 
 Set via environment variables before running:

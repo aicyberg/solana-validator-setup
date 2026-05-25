@@ -66,6 +66,11 @@ SSH_PUBLIC_KEYS=(
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK6HS33hxsp1e2fxmZN/L3Cg/eWGLpQWfhIgi7gLE8TN ubuntu@main"
 )
 
+# Optional SSH private key. The script derives and authorizes its public key,
+# then shreds the private key by default.
+SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-}"
+SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL="${SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL:-true}"
+
 # --- Telegram alerts (optional) ---
 # Set via env: export TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
@@ -203,6 +208,32 @@ chmod 600 "$HOME_DIR/.ssh/config"
 chown -R "$NEW_USER:$NEW_USER" "$HOME_DIR/.ssh"
 chmod 700 "$HOME_DIR/.ssh"
 chmod 600 "$HOME_DIR/.ssh/authorized_keys"
+
+if [ -n "$SSH_PRIVATE_KEY" ]; then
+    log_info "Writing provided SSH private key"
+    printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME_DIR/.ssh/id_ed25519"
+    chmod 600 "$HOME_DIR/.ssh/id_ed25519"
+    ssh-keygen -y -f "$HOME_DIR/.ssh/id_ed25519" > "$HOME_DIR/.ssh/id_ed25519.pub"
+    chmod 644 "$HOME_DIR/.ssh/id_ed25519.pub"
+    PUB_KEY=$(cat "$HOME_DIR/.ssh/id_ed25519.pub")
+    if ! grep -qF "$PUB_KEY" "$HOME_DIR/.ssh/authorized_keys" 2>/dev/null; then
+        echo "$PUB_KEY" >> "$HOME_DIR/.ssh/authorized_keys"
+    fi
+    chown "$NEW_USER:$NEW_USER" "$HOME_DIR/.ssh/id_ed25519" "$HOME_DIR/.ssh/id_ed25519.pub"
+    log_info "SSH public key derived and authorized"
+
+    if [ "$SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL" = "true" ]; then
+        log_info "Shredding SSH private key after deriving public key"
+        if command -v shred >/dev/null 2>&1; then
+            shred -u "$HOME_DIR/.ssh/id_ed25519"
+        else
+            rm -f "$HOME_DIR/.ssh/id_ed25519"
+            log_warn "shred command not found; removed SSH private key without secure overwrite"
+        fi
+    else
+        log_warn "SSH private key left on disk because SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL=false"
+    fi
+fi
 
 if ! grep -q "^$NEW_USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
     echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
