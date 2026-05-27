@@ -64,6 +64,7 @@ log_info "User           : $NEW_USER"
 # Example: "ssh-ed25519 AAAA... user@host"
 SSH_PUBLIC_KEYS=(
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK6HS33hxsp1e2fxmZN/L3Cg/eWGLpQWfhIgi7gLE8TN ubuntu@main"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOyXQcMl/qLEzM2cPlUynmbsh5/N1YNgZN6Gd5wN52Ee openclaw-cherry-solana-fd-20260524"
 )
 
 # Optional SSH private key. The script derives and authorizes its public key,
@@ -162,7 +163,12 @@ FDCTL="$FD_DIR/build/native/gcc/bin/fdctl"
 log_section "STEP 1: System Update"
 
 export DEBIAN_FRONTEND=noninteractive
-apt update && apt upgrade -y
+apt-get update -y
+if [ "${FD_SKIP_APT_UPGRADE:-true}" = "true" ]; then
+    log_warn "Skipping full apt upgrade for speedrun/rehearsal"
+else
+    apt-get upgrade -y
+fi
 
 systemctl disable --now apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl disable --now apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
@@ -274,7 +280,7 @@ log_section "STEP 5: Installing System Dependencies"
 apt-get install -y \
     libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make \
     libprotobuf-dev protobuf-compiler lld libclang-dev llvm-dev \
-    build-essential git curl wget ufw chrony numactl ethtool iproute2
+    build-essential git curl wget ufw chrony numactl ethtool iproute2 xfsprogs
 
 #############################################################################
 # STEP 6: Install Rust
@@ -352,11 +358,32 @@ mkdir -p /mnt/accounts /mnt/ledger /mnt/snapshots /mnt/ramdisk
 # Find largest non-system NVMe → accounts
 ACCOUNTS_DISK=""
 LARGEST_SIZE=0
+
+is_candidate_data_disk() {
+    local disk="$1"
+    local name
+    name="$(basename "$disk")"
+
+    [ -b "$disk" ] || return 1
+    [[ "$SYSTEM_DISK" == *"$name"* ]] && return 1
+    [[ "$disk" == *"$SYSTEM_DISK"* ]] && return 1
+
+    # Skip disks that have mounted child partitions, including mdraid roots.
+    if lsblk -nr -o MOUNTPOINTS "$disk" 2>/dev/null | grep -qE '/|/boot|/boot/efi'; then
+        return 1
+    fi
+
+    # Skip disks that still contain mdraid members. Cherry may deploy OS RAID1
+    # while reporting two NVMe disks; formatting either member destroys root.
+    if lsblk -nr -o FSTYPE "$disk" 2>/dev/null | grep -q '^linux_raid_member$'; then
+        return 1
+    fi
+
+    return 0
+}
+
 for disk in /dev/nvme*n1; do
-    [ -b "$disk" ] || continue
-    [[ "$SYSTEM_DISK" == *"$(basename "$disk")"* ]] && continue
-    [[ "$disk" == *"$SYSTEM_DISK"* ]] && continue
-    mount | grep -q "^$disk" && continue
+    is_candidate_data_disk "$disk" || continue
     SIZE=$(lsblk -bno SIZE "$disk" 2>/dev/null | head -1)
     if [ -n "$SIZE" ] && [ "$SIZE" -gt "$LARGEST_SIZE" ]; then
         LARGEST_SIZE=$SIZE
@@ -388,11 +415,8 @@ chown -R "$NEW_USER:$NEW_USER" /mnt/accounts
 # Find second disk for ledger
 LEDGER_DISK=""
 for disk in /dev/nvme*n1; do
-    [ -b "$disk" ] || continue
+    is_candidate_data_disk "$disk" || continue
     [[ "$disk" == "$ACCOUNTS_DISK" ]] && continue
-    [[ "$SYSTEM_DISK" == *"$(basename "$disk")"* ]] && continue
-    [[ "$disk" == *"$SYSTEM_DISK"* ]] && continue
-    mount | grep -q "^$disk" && continue
     LEDGER_DISK=$disk
     break
 done
@@ -693,6 +717,7 @@ done
 # Firedancer XDP mode detection
 #############################################################################
 
+NET_PROVIDER="socket"
 XDP_TOML=""
 DEFAULT_IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev") {print $(i+1); exit}}')
 FD_XDP_ZERO_COPY_DRIVERS="mlx5_core|mlx5|ice|i40e"
@@ -744,6 +769,7 @@ if [ -n "$DEFAULT_IFACE" ]; then
     log_info "NIC: $DEFAULT_IFACE  driver: ${NIC_DRIVER:-unknown}  bus: ${NIC_BUS:-unknown}  NUMA: $NIC_NUMA"
 
     if probe_xdp_drv_mode "$DEFAULT_IFACE"; then
+        NET_PROVIDER="xdp"
         log_info "NIC $DEFAULT_IFACE passed native XDP drv-mode probe"
         if echo "$NIC_DRIVER" | grep -qE "$FD_XDP_ZERO_COPY_DRIVERS"; then
             XDP_TOML='
@@ -823,7 +849,7 @@ $(printf "%b" "$KV_TOML")    ]
     enabled = false
 
 [net]
-    provider = "xdp"
+    provider = "$NET_PROVIDER"
 $XDP_TOML
 EOF
 
@@ -1004,8 +1030,5 @@ systemctl enable sync-monitor
 
 send_telegram "🔧 <b>$(hostname)</b>: Firedancer ${FD_TAG} setup complete (${NETWORK})"
 
-log_warn "IMPORTANT: Test SSH login as '$NEW_USER' before reboot!"
-log_info "Rebooting in 30 seconds..."
-log_info "Press Ctrl+C to cancel."
-sleep 30
-/sbin/reboot -f
+log_warn "IMPORTANT: Test SSH login as '$NEW_USER' before reboot."
+log_warn "Automatic reboot disabled for controlled hot-swap rehearsal."
