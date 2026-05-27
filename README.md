@@ -125,11 +125,16 @@ SSH_PUBLIC_KEYS=(
 > ⚠️ **Warning:** The script hardens SSH and disables password authentication. If you don't add your key, you **will** be locked out after reboot.
 
 `fire-full-setup.sh` and `jito-full-setup.sh` can also accept
-`SSH_PRIVATE_KEY` via environment. They write
-the key only long enough to derive and authorize the public key, then shreds
+`SSH_PRIVATE_KEY` or `SSH_PRIVATE_KEY_FILE` via environment. They write
+the key only long enough to derive and authorize the public key, then shred
 `~/.ssh/id_ed25519` by default. Set
 `SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL=false` only if the deployed host must keep
 that private key for outbound SSH.
+
+For Cherry rehearsals, use one pre-created stable SSH keypair every time.
+The public key should be present in `SSH_PUBLIC_KEYS`; the private key should
+be injected at runtime with `SSH_PRIVATE_KEY_FILE` pointing at a root-only
+secret file and must not be committed to git or copied into documentation.
 
 ### Telegram Alerts (optional)
 

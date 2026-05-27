@@ -70,6 +70,7 @@ SSH_PUBLIC_KEYS=(
 # Optional SSH private key. The script derives and authorizes its public key,
 # then shreds the private key by default.
 SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-}"
+SSH_PRIVATE_KEY_FILE="${SSH_PRIVATE_KEY_FILE:-}"
 SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL="${SSH_PRIVATE_KEY_SHRED_AFTER_INSTALL:-true}"
 
 # --- Telegram alerts (optional) ---
@@ -214,6 +215,15 @@ chmod 600 "$HOME_DIR/.ssh/config"
 chown -R "$NEW_USER:$NEW_USER" "$HOME_DIR/.ssh"
 chmod 700 "$HOME_DIR/.ssh"
 chmod 600 "$HOME_DIR/.ssh/authorized_keys"
+
+if [ -z "$SSH_PRIVATE_KEY" ] && [ -n "$SSH_PRIVATE_KEY_FILE" ]; then
+    if [ ! -r "$SSH_PRIVATE_KEY_FILE" ]; then
+        log_error "SSH_PRIVATE_KEY_FILE is set but not readable: $SSH_PRIVATE_KEY_FILE"
+        exit 1
+    fi
+    log_info "Reading provided SSH private key file"
+    SSH_PRIVATE_KEY="$(cat "$SSH_PRIVATE_KEY_FILE")"
+fi
 
 if [ -n "$SSH_PRIVATE_KEY" ]; then
     log_info "Writing provided SSH private key"
