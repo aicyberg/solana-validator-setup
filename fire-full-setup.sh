@@ -45,6 +45,7 @@ fi
 
 NEW_USER="${FD_USER:-ubuntu}"
 FD_SKIP_SYSTEMD_DAEMON_REEXEC="${FD_SKIP_SYSTEMD_DAEMON_REEXEC:-true}"
+SSH_ALLOW_CIDR="${SSH_ALLOW_CIDR:-}"
 FD_TAG="${1:?Usage: sudo bash fire-full-setup.sh <version> [network]  e.g. v0.415.20129 mainnet}"
 NETWORK="${2:-mainnet}"
 
@@ -585,6 +586,9 @@ ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 
+if [ -n "${SSH_ALLOW_CIDR}" ]; then
+    ufw allow from "${SSH_ALLOW_CIDR}" to any port 22 proto tcp comment 'Controlled SSH source'
+fi
 ufw limit 22/tcp                                                                         comment 'SSH'
 ufw allow 8900:9000/tcp                                                                  comment 'Validator TCP'
 ufw allow 8900:9000/udp                                                                  comment 'Validator UDP'
