@@ -44,6 +44,7 @@ fi
 #############################################################################
 
 NEW_USER="${FD_USER:-ubuntu}"
+FD_SKIP_SYSTEMD_DAEMON_REEXEC="${FD_SKIP_SYSTEMD_DAEMON_REEXEC:-true}"
 FD_TAG="${1:?Usage: sudo bash fire-full-setup.sh <version> [network]  e.g. v0.415.20129 mainnet}"
 NETWORK="${2:-mainnet}"
 
@@ -561,7 +562,11 @@ sysctl -p /etc/sysctl.d/21-solana-validator.conf
 
 grep -q "DefaultLimitNOFILE=2000000" /etc/systemd/system.conf || \
     echo "DefaultLimitNOFILE=2000000" >> /etc/systemd/system.conf
-systemctl daemon-reexec
+if [ "${FD_SKIP_SYSTEMD_DAEMON_REEXEC}" = "true" ]; then
+    log_warn "Skipping systemctl daemon-reexec during remote Cherry bootstrap"
+else
+    systemctl daemon-reexec
+fi
 
 cat > /etc/security/limits.d/90-solana-nofiles.conf << 'LIMITS'
 * - nofile 2000000
